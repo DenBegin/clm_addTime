@@ -1,0 +1,694 @@
+// Collection of base selectors (without list IDs that might change)
+// v.0.12
+// Values for each row
+const VALUES = [
+{
+    start: {date: '01/05/2022', hours: '01', minutes: '05', amPm: 'AM'},
+    end: {date: '02/06/2022', hours: '02', minutes: '10', amPm: 'AM'},
+    hourType: 'Travel',
+    servType: 'On-Site Service'
+},
+{
+    start: {date: '06/16/2023', hours: '11', minutes: '15', amPm: 'AM'},
+    end: {date: '07/17/2023', hours: '12', minutes: '20', amPm: 'PM'},
+    hourType: 'Service',
+    servType: 'On-Site Service'
+},
+{
+    start: {date: '11/22/2024', hours: '10', minutes: '50', amPm: 'PM'},
+    end: {date: '11/22/2024', hours: '11', minutes: '55', amPm: 'PM'},
+    hourType: 'Travel',
+    servType: 'On-Site Service'
+}
+];
+
+const SEL = {
+    // Grid rows
+    ROWS: '#svmx-listcomposite-1092-body tr.svmx-grid-row',
+    // Input fields
+    HOUR_TYPE: '#sfm-picklistcelleditor-1061-triggerWrap',      
+    SERVICE_TYPE: '#sfm-picklistcelleditor-1062-triggerWrap',   
+    START_DATE: '#svmx-date-1064-inputEl',
+    END_DATE: '#svmx-date-1071-inputEl',
+
+    // Start time dropdown triggers
+    S_HOUR: '#svmx-picklist-1065-triggerWrap .svmx-form-trigger',
+    S_MIN: '#svmx-picklist-1066-triggerWrap .svmx-form-trigger',
+    S_AM_PM: '#svmx-picklist-1067-triggerWrap .svmx-form-trigger',
+
+    // End time dropdown triggers
+    E_HOUR: '#svmx-picklist-1072-triggerWrap .svmx-form-trigger',
+    E_MIN: '#svmx-picklist-1073-triggerWrap .svmx-form-trigger',
+    E_AM_PM: '#svmx-picklist-1074-triggerWrap .svmx-form-trigger',
+
+    // Grid column identifiers
+    COLUMNS: {
+        "Hour Type": "svmx-grid-cell-gridcolumn-1081",
+        "Service Type": "svmx-grid-cell-gridcolumn-1082",
+        "Start Date Time": "svmx-grid-cell-gridcolumn-1083",
+        "End Date Time": "svmx-grid-cell-gridcolumn-1084"
+    }
+};
+
+/**
+ * Класс для управления процессом проверки, создания и заполнения строк таблицы
+ */
+class ProcessManager {
+    constructor(tableProcessor, dateUpdater) {
+        this.tableProcessor = tableProcessor;
+        this.dateUpdater = dateUpdater;
+    }
+
+    async createAndFillRows() {
+        try {
+            // Проверка заголовков
+            await this.tableProcessor.verifyHeaders();
+
+            // Создание строк
+            await this.tableProcessor.createRows();
+
+            // Получение всех строк таблицы
+            const allRows = this.dateUpdater.getRows();
+
+            // Получение последних трех строк
+            const newRows = Array.from(allRows).slice(-this.tableProcessor.createdRowsCount);
+
+            // Заполнение последних трех строк данными из VALUES
+            for (let i = 0; i < newRows.length; i++) {
+                const row = newRows[i];
+                const rowValues = VALUES[i]; // Предполагается, что VALUES содержит данные для новых строк
+
+                // Установка дат и времени
+                await this.dateUpdater.setDateTime(row, SEL.COLUMNS["Start Date Time"], {
+                    SLdate: SEL.START_DATE,
+                    SLhour: SEL.S_HOUR,
+                    SLminu: SEL.S_MIN,
+                    SLamPm: SEL.S_AM_PM
+                }, rowValues.start, "Start Date Time");
+
+                await this.dateUpdater.setDateTime(row, SEL.COLUMNS["End Date Time"], {
+                    SLdate: SEL.END_DATE,
+                    SLhour: SEL.E_HOUR,
+                    SLminu: SEL.E_MIN,
+                    SLamPm: SEL.E_AM_PM
+                }, rowValues.end, "End Date Time");
+
+                // Установка типов
+                await this.dateUpdater.setHSType(this.dateUpdater.getRowIndex(row), {
+                    column: SEL.COLUMNS["Hour Type"],
+                    value: rowValues.hourType,
+                    fieldName: "Hour Type"
+                });
+
+                await this.dateUpdater.setHSType(this.dateUpdater.getRowIndex(row), {
+                    column: SEL.COLUMNS["Service Type"],
+                    value: rowValues.servType,
+                    fieldName: "Service Type"
+                });
+            }
+
+            console.log('✅ Последние три строки заполнены успешно.');
+        } catch (error) {
+            console.error('❌ Ошибка при создании и заполнении строк:', error.message);
+        }
+    }
+
+/*
+// Использование 
+const COLUMNS = {
+    "Hour Type": "svmx-grid-cell-gridcolumn-1081",
+    "Service Type": "svmx-grid-cell-gridcolumn-1082",
+    "Start Date Time": "svmx-grid-cell-gridcolumn-1083",
+    "End Date Time": "svmx-grid-cell-gridcolumn-1084"
+};
+const tableProcessor = new TableProcessor(COLUMNS);
+const dateUpdater = new DateUpdater(false); // Установите false для включения отладки
+
+const processManager = new ProcessManager(tableProcessor, dateUpdater);
+processManager.createAndFillRows();
+*/
+}
+
+
+/**
+ * Класс для обновления дат, времени и типов в строках таблицы
+ */
+class DateUpdater {
+    /**
+     * @param {boolean} noDebug - Set false to enable debug logging
+     */
+    constructor(noDebug = true) {
+        this.debug = !noDebug;
+        this.wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    log(...args) {
+        if (this.debug) {
+            console.log(...args);
+        }
+    }
+
+    /**
+     * Метод для логирования найденных элементов по селектору
+     * @param {string} description - Описание для логирования
+     * @param {string} selector - Селектор для поиска элементов
+     */
+    logElements(description, selector) {
+        const elements = document.querySelectorAll(selector);
+            if (elements.length === 0) {
+                console.warn(`❌ ${description}: Нет найденных элементов по селектору "${selector}"`);
+            } else {
+                console.log(`✅ ${description}: Найдено ${elements.length} элемент(ов) по селектору "${selector}"`);
+                elements.forEach((el, index) => {
+                    console.log(`   [${index}] Tag: ${el.tagName}, ID: ${el.id || 'нет'}, Classes: ${el.className}`);
+                });
+            }
+        }
+
+        async findList(type, value = null) {
+            this.log(`\n--- findList: Searching for: ${type}, ${value} ---`);
+
+                const visibleLists = Array.from(document.querySelectorAll('.svmx-boundlist'))
+                    .filter(list => window.getComputedStyle(list).display !== 'none');
+
+                        this.log(`Found ${visibleLists.length} visible lists.`);
+
+    // Определяем ожидаемые размеры для разных типов списков
+                            const expectedSizes = { hours: 12, minutes: 60, ampm: 2 }; 
+                            let targetSize = expectedSizes[type];
+
+    // Если это поиск по типу (hourType/servType)
+                            if (value) {
+                                this.log(`#HoSeT Searching for specific value: ${value}`);
+                                targetSize = null;
+                            }
+
+                            let suitableList = null;
+                            for (const [index, list] of visibleLists.entries()) {
+                                const items = Array.from(list.querySelectorAll('.svmx-boundlist-item'))
+                                .map(item => item.textContent.trim());
+                                const size = items.length;
+                                this.log(`List ${index + 1}:${list.id}: ${size} items`, items);
+
+        // Для поиска конкретного значения
+                                if (value && items.includes(value)) {
+                                    this.log(`Found list with value "${value}"`);
+                                    suitableList = list;
+                                    break;
+                                }
+
+        // Для поиска по размеру списка
+                                if (targetSize && size === targetSize) {
+                                    this.log(`List ${list.id} matches size ${targetSize} for type "${type}"`);
+                                    suitableList = list;
+                                }
+                            }
+
+                            if (!suitableList) {
+                                this.log(`No suitable list found for type "${type}"${value ? ` with value "${value}"` : ''}`);
+                            } else {
+                                this.log('Found suitable list:', suitableList.id);
+                            }
+
+                            return suitableList;
+                        }
+
+                        async setTimeField(selector, fieldType, targetValue, fieldName) {
+       // Клик по элементу для открытия списка
+                            const trigger = document.querySelector(selector);
+                               if (!trigger) {
+                                console.error(`❌ Trigger for ${fieldType} not found`);
+                                return false;
+                            }
+                            trigger.click();
+
+        // Динамическое ожидание появления списка
+                                let attempts = 10;
+                                let list = null;
+
+                                while (attempts > 0 && !list) {
+                                    list = await this.findList(fieldType);
+                                    if (!list) {
+                await this.wait(10); // Ждем 10 мс перед следующей попыткой
+                attempts--;
+            }
+        }
+
+        this.log(`Attempts "${11 - attempts}" for ${fieldType}`);
+
+            if (!list) {
+                console.error(`❌ ${fieldType.toUpperCase()} list not found for "${fieldName}"`);
+                return false;
+            }
+
+
+        // Поиск нужного элемента в списке и клик по нему
+            const option = Array.from(list.querySelectorAll('.svmx-boundlist-item'))
+                .find(el => el.textContent.trim() === targetValue);
+
+                    if (!option) {
+                        console.error(`❌ ${fieldType.toUpperCase()} option "${targetValue}" not found for "${fieldName}"`);
+                        return false;
+                    }
+
+                    option.click();
+                        this.log(`✅ ${fieldType.toUpperCase()} set to "${targetValue}" for "${fieldName}"`);
+                            return true;
+                        }
+
+    /**
+ * Метод для установки типов (Hour Type и Service Type) в строке
+ * Основан на рабочем классе ServiceSelector
+ * 
+ * @param {number} rowIndex - Индекс строки
+ * @param {object} options - Параметры выбора
+ * @param {string} options.column - Класс столбца
+ * @param {string} options.value - Значение для выбора
+ * @param {string} options.fieldName - Название поля для логирования
+ * @returns {boolean} - Успешно ли выполнено
+ */
+                        async setHSType(rowIndex, options) {
+                            const { column, value, fieldName } = options;
+
+                            try {
+                                this.log(`\n=== Обработка "${fieldName}" для строки ${rowIndex + 1} ===`);
+
+        // Логируем все ячейки в указанном столбце
+                                this.logElements(`Элементы с классом "${column}"`, `.${column}`);
+                                const cells = document.querySelectorAll(`.${column}`);
+                                const cell = cells[rowIndex];
+
+                                if (!cell) {
+                                    throw new Error(`❌ Ячейка с классом "${column}" для строки ${rowIndex + 1} не найдена`);
+                                }
+
+                                this.log(`🔄 Клик по ячейке в строке ${rowIndex + 1}`);
+                                cell.click();
+        await this.wait(100); // ❗️ Не увеличивать задержку
+
+        // Получение селектора из SEL на основе fieldName
+        const fieldSelectorMap = {
+            "Hour Type": SEL.HOUR_TYPE,
+            "Service Type": SEL.SERVICE_TYPE
+        };
+        const editorSelector = fieldSelectorMap[fieldName];
+        if (!editorSelector) {
+            throw new Error(`❌ Нет селектора для поля "${fieldName}"`);
+        }
+        this.log(`🔍 Поиск редактора: "${editorSelector}"`);
+
+        // Логируем поиск редактора по селектору
+        this.logElements(`Редакторы с селектором "${editorSelector}"`, editorSelector);
+        const fieldEditor = document.querySelector(editorSelector);
+        
+        if (!fieldEditor) {
+            throw new Error('❌ Field editor не появился');
+        }
+
+        // Логируем триггеры списка внутри редактора
+        this.logElements('Триггеры списка внутри редактора', `${editorSelector} .svmx-form-trigger.svmx-form-arrow-trigger`);
+        const arrowTrigger = fieldEditor.querySelector('.svmx-form-trigger.svmx-form-arrow-trigger');
+        if (!arrowTrigger) {
+            throw new Error('❌ Триггер не найден в редакторе');
+        }
+
+        this.log('🔄 Клик по триггеру списка');
+        arrowTrigger.click();
+        await this.wait(100);
+
+        // Логируем поиск списка по ID
+        this.logElements(`Все списки с ID, начинающимися на "boundlist-"`, '[id^="boundlist-"]');
+        const allBoundLists = document.querySelectorAll('[id^="boundlist-"]');
+        if (allBoundLists.length === 0) {
+            throw new Error('❌ Нет ни одного списка с ID, начинающимся на "boundlist-"');
+        }
+
+        // Перебираем все найденные списки и ищем нужную опцию
+        let boundList = null;
+        for (const list of allBoundLists) {
+            const listItems = list.querySelectorAll('.svmx-boundlist-item');
+            const availableOptions = Array.from(listItems).map(el => el.textContent.trim());
+            this.log(`🔍 Проверка списка ID "${list.id}" на наличие опции "${value}":`, availableOptions);
+            
+            if (availableOptions.includes(value)) {
+                boundList = list;
+                this.log(`✅ Список с ID "${list.id}" содержит опцию "${value}"`);
+                break;
+            }
+        }
+
+        if (!boundList) {
+            throw new Error(`❌ Список с опцией "${value}" не найден среди всех списков`);
+        }
+
+        // Логируем элементы найденного списка
+        this.logElements('Элементы найденного списка', `#${boundList.id} .svmx-boundlist-item`);
+        const listItems = boundList.querySelectorAll('.svmx-boundlist-item');
+
+        const availableOptions = Array.from(listItems).map(el => el.textContent.trim());
+        this.log('📄 Доступные опции в найденном списке:', availableOptions);
+
+        const option = Array.from(listItems).find(el => el.textContent.trim() === value);
+
+        if (option) {
+            this.log(`✅ Выбираем опцию "${value}"`);
+            option.click();
+            await this.wait(100);
+            return true;
+        } else {
+            throw new Error(`❌ Опция "${value}" не найдена в найденном списке. Доступные опции: ${availableOptions.join(', ')}`);
+        }
+    } catch (error) {
+        console.error(`❗️ Ошибка в строке ${rowIndex + 1}:`, error.message);
+        return false;
+    }
+}
+
+
+    /**
+     * Метод для логирования найденных элементов по селектору
+     * @param {string} description - Описание для логирования
+     * @param {string} selector - Селектор для поиска элементов
+     */
+logElements(description, selector) {
+    const elements = document.querySelectorAll(selector);
+        if (elements.length === 0) {
+            console.warn(`❌ ${description}: Нет найденных элементов по селектору "${selector}"`);
+        } else {
+            console.log(`✅ ${description}: Найдено ${elements.length} элемент(ов) по селектору "${selector}"`);
+            elements.forEach((el, index) => {
+                console.log(`   [${index}] Tag: ${el.tagName}, ID: ${el.id || 'нет'}, Classes: ${el.className}`);
+            });
+        }
+    }
+
+
+    async clickOnBlank(){   //svmx-grid-cell-gridcolumn-1084 //'#actioncolumn-1080-titleEl'  //#svmx-listcomposite-1092-body
+        // this.log(` *** Click on Blank ***`);
+        // const cell = querySelector(`#svmx-listcomposite-1092-body`);
+        // this.log(`Clicking on "${value}" cell.`);
+        // cell.click();
+        // await this.wait(100);
+    }
+
+    /**
+     * Метод для установки даты и времени в строке
+     * @param {HTMLElement} row - Строка таблицы
+     * @param {string} columnClass - Класс столбца
+     * @param {object} selectors - Селекторы для полей даты и времени
+     * @param {object} dateTime - Значения даты и времени
+     * @param {string} fieldName - Название поля для логирования
+     * @returns {boolean} - Успешно ли выполнено
+     */
+    async setDateTime(row, columnClass, selectors, dateTime, fieldName) {
+        this.log(`--- Setting DateTime for "${fieldName}" ---`);
+            this.log(`Row: ${row.className}, Column: ${columnClass}, DateTime: ${JSON.stringify(dateTime)}`);
+                this.log(`Selectors: ${JSON.stringify(selectors)}`);
+        const cell = row.querySelector(`.${columnClass}`);              // e.g., svmx-grid-cell-gridcolumn-1083
+            if (!cell) {
+                console.error(`❌ Cell for "${fieldName}" not found.`);
+                return false;
+            }
+
+            this.log(`🔄 Clicking on "${fieldName}" cell.`);
+                cell.click();
+                    await this.wait(100);
+
+            // Set date value
+                        const dateInput = document.querySelector(selectors.SLdate);
+                            if (dateInput) {
+                                this.log(`📅 Setting date to "${dateTime.date}" for "${fieldName}". Current value: "${dateInput.value}"`);
+                                dateInput.value = '';
+                                dateInput.dispatchEvent(new Event('input', { bubbles: true }));
+                                dateInput.value = dateTime.date;
+                                dateInput.dispatchEvent(new Event('input', { bubbles: true }));
+                                dateInput.dispatchEvent(new Event('change', { bubbles: true }));
+                                this.log(`✅ Date "${dateTime.date}" set for "${fieldName}".`);
+                            } else {
+                                console.error(`❌ Input field for "${fieldName}" not found.`);
+                            }
+                            await this.wait(100);
+
+        // Set time
+                                await this.setTimeField(selectors.SLhour, 'hours', dateTime.hours, fieldName);
+        await this.wait(150); // Небольшая задержка между установками
+            await this.setTimeField(selectors.SLminu, 'minutes', dateTime.minutes, fieldName);
+                await this.wait(150);
+                    await this.setTimeField(selectors.SLamPm, 'ampm', dateTime.amPm, fieldName);
+                        await this.wait(150);
+                    }
+
+    /**
+     * Метод для получения индекса строки по элементу row
+     * @param {HTMLElement} row - Элемент строки
+     * @returns {number} - Индекс строки
+     */
+                    getRowIndex(row) {
+                        const rows = Array.from(document.querySelectorAll(SEL.ROWS));
+                            return rows.indexOf(row);
+                        }
+
+    /**
+     * Получение всех строк таблицы
+     * @returns {HTMLElement[]} - Массив строк таблицы
+     */
+                        getRows() {
+                            const rows = Array.from(document.querySelectorAll(SEL.ROWS));
+                                this.log(`Found ${rows.length} rows.`);
+                                    return rows;
+                                }
+
+    /**
+     * Основной метод для запуска обновления данных
+     */
+                                async run() {
+                                    const rows = this.getRows();
+                                        if (!rows.length) {
+                                            console.error('❌ No rows found. Exiting.');
+                                            return;
+                                        }
+
+                                        const startDTSelectors = {
+                                            SLdate: SEL.START_DATE,
+                                            SLhour: SEL.S_HOUR,
+                                            SLminu: SEL.S_MIN,
+                                            SLamPm: SEL.S_AM_PM
+                                        };
+
+                                        const endDTSelectors = {
+                                            SLdate: SEL.END_DATE,
+                                            SLhour: SEL.E_HOUR,
+                                            SLminu: SEL.E_MIN,
+                                            SLamPm: SEL.E_AM_PM
+                                        };
+
+        // Определение селекторов для Hour Type и Service Type
+        // Теперь setHSType использует fieldName для получения селектора из SEL
+        // Поэтому не нужно передавать editorId
+                                        for (let i = 0; i < rows.length; i++) {
+                                            const row = rows[i];
+                                            this.log(`\n🔄 Обработка строки ${i + 1}/${rows.length}`);
+                                            this.log(`📄 Детали строки ${i + 1}: ${row.className}`);
+
+                                            if (i < VALUES.length) {
+                                                const rowValues = VALUES[i];
+                // Установка дат и времени
+                                                await this.setDateTime(row, SEL.COLUMNS["Start Date Time"], startDTSelectors, rowValues.start, "Start Date Time");
+                                                await this.setDateTime(row, SEL.COLUMNS["End Date Time"], endDTSelectors, rowValues.end, "End Date Time");
+                // Установка типов
+                                                await this.setHSType(i, {
+                                                    column: SEL.COLUMNS["Hour Type"],
+                                                    value: rowValues.hourType,
+                                                    fieldName: "Hour Type"
+                                                });
+                                                await this.setHSType(i, {
+                                                    column: SEL.COLUMNS["Service Type"],
+                                                    value: rowValues.servType,
+                                                    fieldName: "Service Type"
+                                                });
+                                            }
+
+            // Задержка перед обработкой следующей строки
+            await this.wait(100); // ❗️ Не увеличивать задержку
+        }
+
+        // Если необходимо снять фокус после обработки всех строк, можно раскомментировать следующий вызов
+        // await this.clickOnBlank();
+
+        this.log('🎉 All rows processed successfully.');
+    }
+
+}
+
+/**
+ * Метод для логирования найденных элементов по селектору
+ * @param {string} description - Описание для логирования
+ * @param {string} selector - Селектор для поиска элементов
+ */
+DateUpdater.prototype.logElements = function(description, selector) {
+    const elements = document.querySelectorAll(selector);
+    if (elements.length === 0) {
+        console.warn(`❌ ${description}: Нет найденных элементов по селектору "${selector}"`);
+    } else {
+        console.log(`✅ ${description}: Найдено ${elements.length} элемент(ов) по селектору "${selector}"`);
+        elements.forEach((el, index) => {
+            console.log(`   [${index}] Tag: ${el.tagName}, ID: ${el.id || 'нет'}, Classes: ${el.className}`);
+        });
+    }
+};
+
+
+
+
+class TableProcessor {
+    constructor(columns) {
+        // Store the columns map for verification and extraction
+        this.columns = columns;
+        this.createdRowsCount = 0; // Track the number of rows created
+    }
+
+    verifyHeaders() {
+        // Select all column headers from the table
+        const headers = document.querySelectorAll('div.svmx-column-header-inner');
+            const headerTexts = Array.from(headers).map(header => header.textContent.trim());
+
+        // Check if all expected headers are present
+                const missingHeaders = Object.keys(this.columns).filter(header => !headerTexts.includes(header));
+                    if (missingHeaders.length > 0) {
+                        alert(`Missing headers in table: ${missingHeaders.join(', ')}`);
+                        throw new Error(`Missing headers in table: ${missingHeaders.join(', ')}`);
+                    }
+
+        // Verify if each header in the map matches its corresponding class in the table
+                    for (const [header, className] of Object.entries(this.columns)) {
+                        const headerIndex = headerTexts.indexOf(header);
+                        if (headerIndex === -1) continue;
+
+                        const columnClassExists = document.querySelector(`td.${className}`);
+                        if (!columnClassExists) {
+                            alert(`Class mismatch for header "${header}" (expected: ${className})`);
+                            throw new Error(`Class mismatch for header "${header}" (expected: ${className})`);
+                        }
+                    }
+
+                    console.log('All headers and column classes verified successfully.');
+                }
+
+                createRows() {    
+                    console.log('Creating 3 rows...');
+
+                        return new Promise((resolve, reject) => {
+            // Find the Add Row button
+                            const addRowButton = document.querySelector('#sfm-button-1099-btnEl');
+                            if (!addRowButton) {
+                                alert('Error: Add Row button not found');
+                                return reject(new Error('Add Row button not found'));
+                            }
+
+            // Click the button 3 times to create rows
+                            for (let i = 0; i < 3; i++) {
+                                addRowButton.click();
+                            }
+
+            // Wait a short delay to allow rows to be added dynamically
+                            setTimeout(() => {
+                                const rows = document.querySelectorAll('tr.svmx-grid-row');
+                                const newRowsCount = rows.length;
+
+                                if (newRowsCount < 3) {
+                                    alert(`Error: Failed to create 3 rows. Only ${newRowsCount} rows were created.`);
+                                    return reject(new Error(`Failed to create 3 rows. Only ${newRowsCount} rows were created.`));
+                                }
+
+                this.createdRowsCount = 3; // Update the number of rows created
+                console.log('3 rows created successfully.');
+                resolve();
+            }, 500); // Adjust the delay as needed
+                        });
+                    }
+
+                    extractData() {
+                        console.log('Extracting data from rows...');
+
+        // Find all rows in the table
+                            const rows = document.querySelectorAll('tr.svmx-grid-row');
+
+        // Get only the last `this.createdRowsCount` rows, which were recently created
+                                const newRows = Array.from(rows).slice(-this.createdRowsCount);
+
+        // Prepare an object to store extracted data for each column
+                                    const columnData = {};
+                                    Object.keys(this.columns).forEach(header => {
+            columnData[header] = []; // Initialize an empty array for each column
+        });
+
+        // Extract data from the selected rows
+        newRows.forEach(row => {
+            Object.keys(this.columns).forEach(header => {
+                const className = this.columns[header]; // Get the class for the column
+                const cell = row.querySelector(`td.${className}`); // Locate the cell by its class
+                const cellContent = cell ? cell.textContent.trim() : 'No Data';
+                columnData[header].push(cellContent); // Collect data for the column
+            });
+        });
+
+        // Output the extracted data, grouped by columns
+        Object.keys(columnData).forEach(header => {
+            console.log(`${header}:`);
+            columnData[header].forEach((value, index) => {
+                console.log(`  Row ${index + 1}: ${value}`);
+            });
+        });
+    }
+
+    async run() {
+        try {
+            this.verifyHeaders(); // Verify headers and map them to classes
+            await this.createRows(); // Create rows
+            this.extractData(); // Extract and display data from the rows
+        } catch (error) {
+            console.error('❌ Error during TableProcessor.run():', error.message);
+        }
+    }
+
+    /**
+     * Метод для логирования найденных элементов по селектору
+     * @param {string} description - Описание для логирования
+     * @param {string} selector - Селектор для поиска элементов
+     */
+    logElements(description, selector) {
+        const elements = document.querySelectorAll(selector);
+            if (elements.length === 0) {
+                console.warn(`❌ ${description}: Нет найденных элементов по селектору "${selector}"`);
+            } else {
+                console.log(`✅ ${description}: Найдено ${elements.length} элемент(ов) по селектору "${selector}"`);
+                elements.forEach((el, index) => {
+                    console.log(`   [${index}] Tag: ${el.tagName}, ID: ${el.id || 'нет'}, Classes: ${el.className}`);
+                });
+            }
+        }
+    }
+
+
+/**
+ * Класс для обновления строк таблицы с использованием TableProcessor и DateUpdater
+ */
+
+// Instantiate TableProcessor with expected headers and classes
+    const COLUMNS = {
+        "Hour Type": "svmx-grid-cell-gridcolumn-1081",
+        "Service Type": "svmx-grid-cell-gridcolumn-1082",
+        "Start Date Time": "svmx-grid-cell-gridcolumn-1083",
+        "End Date Time": "svmx-grid-cell-gridcolumn-1084"
+    };
+    const tableProcessor = new TableProcessor(COLUMNS);
+//tableProcessor.run();
+
+// Instantiate DateUpdater with debugging enabled
+const dateUpdater = new DateUpdater(false); // Установите false для включения отладки
+
+// Instantiate ProcessManager with TableProcessor and DateUpdater
+const processManager = new ProcessManager(tableProcessor, dateUpdater);
+
+// Run the process: verify headers, create rows, and fill the last three rows
+processManager.createAndFillRows();
